@@ -1,5 +1,4 @@
 import Calculator from './components/Calculator';
-import './App.css';
 import packageJson from '../package.json';
 
 function App() {
