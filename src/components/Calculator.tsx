@@ -65,6 +65,18 @@ const Calculator: React.FC = () => {
   const [consumptionOverride, setConsumptionOverride] = useState<number | null>(null);
   const [priceOverride, setPriceOverride] = useState<number | null>(null);
 
+  // Responsive layout flag: stack save-form on narrow screens (<889px)
+  const [isNarrow, setIsNarrow] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    return window.innerWidth < 889;
+  });
+
+  useEffect(() => {
+    const onResize = () => setIsNarrow(window.innerWidth < 889);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   // Helpers for Swedish decimal formatting/parsing
   const formatDecimal = (n: number, digits = 2) => {
     return n.toFixed(digits).replace('.', ',');
@@ -652,76 +664,78 @@ const Calculator: React.FC = () => {
         {consumption && !isCarSelected && (
           <div className="space-y-2 p-4 bg-white/5 rounded-lg border border-white/10">
             <p className="text-xs font-medium text-gray-300">Spara bildata</p>
-            <div className="flex gap-2 items-center">
+            <div className={isNarrow ? 'flex flex-col gap-2' : 'flex gap-2 items-center'}>
               <input
                 type="text"
                 value={carName}
                 onChange={(e) => setCarName(e.target.value)}
                 placeholder="Bilnamn (valfritt)"
                 maxLength={20}
-                className="flex-1 mb-8 bg-black/20 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-all text-base"
+                className={`${isNarrow ? 'w-full' : 'flex-1 mb-0'} bg-black/20 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-all text-base`}
               />
-              <div className="flex flex-col bg-white border-4 border-black rounded-md shadow-lg overflow-hidden" style={{ height: '38px', minHeight: 'unset', maxHeight: '40px' }}>
-                <div className="flex items-center justify-center relative h-full" style={{ height: '100%' }}>
-                  <div className="w-6 bg-blue-600 h-full flex flex-col items-center justify-center gap-0.5" style={{ height: '100%' }}>
-                    <div className="relative mt-1 w-1 h-1">
-                      {Array.from({ length: 12 }).map((_, i) => {
-                        const angle = (i * 30 - 90) * (Math.PI / 180);
-                        const radius = 4.5;
-                        const x = Math.cos(angle) * radius;
-                        const y = Math.sin(angle) * radius;
-                        return (
-                          <div
-                            key={i}
-                            className="absolute w-0.5 h-0.5 bg-yellow-400"
-                            style={{
-                              left: `calc(50% + ${x}px)`,
-                              top: `calc(50% + ${y}px)`,
-                              transform: 'translate(-50%, -50%)'
-                            }}
-                          />
-                        );
-                      })}
+
+              <div className={isNarrow ? 'flex items-center gap-2 w-full' : 'flex items-center gap-2'}>
+                <div className={`${isNarrow ? 'w-3/5' : ''} flex flex-col bg-white border-4 border-black rounded-md shadow-lg overflow-hidden`} style={{ height: '38px', minHeight: 'unset', maxHeight: '40px' }}>
+                  <div className="flex items-center justify-center relative h-full" style={{ height: '100%' }}>
+                    <div className="w-6 bg-blue-600 h-full flex flex-col items-center justify-center gap-0.5" style={{ height: '100%' }}>
+                      <div className="relative mt-1 w-1 h-1">
+                        {Array.from({ length: 12 }).map((_, i) => {
+                          const angle = (i * 30 - 90) * (Math.PI / 180);
+                          const radius = 4.5;
+                          const x = Math.cos(angle) * radius;
+                          const y = Math.sin(angle) * radius;
+                          return (
+                            <div
+                              key={i}
+                              className="absolute w-0.5 h-0.5 bg-yellow-400"
+                              style={{
+                                left: `calc(50% + ${x}px)`,
+                                top: `calc(50% + ${y}px)`,
+                                transform: 'translate(-50%, -50%)'
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                      <div className="text-white font-bold text-xs">S</div>
                     </div>
-                    <div className="text-white font-bold text-xs">S</div>
-                  </div>
-                  <input
-                    type="text"
-                    value={regPlate.replace(/^([A-Z]{3})(\d)/, '$1 $2')}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/\s/g, '').toUpperCase();
-                      setRegPlate(value);
-                      if (regPlateError && value) {
-                        if (validateSwedishRegPlate(value)) {
-                          setRegPlateError('');
+                    <input
+                      type="text"
+                      value={regPlate.replace(/^([A-Z]{3})(\d)/, '$1 $2')}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/\s/g, '').toUpperCase();
+                        setRegPlate(value);
+                        if (regPlateError && value) {
+                          if (validateSwedishRegPlate(value)) {
+                            setRegPlateError('');
+                          }
                         }
-                      }
-                    }}
-                    onBlur={() => {
-                      if (regPlate && !validateSwedishRegPlate(regPlate)) {
-                        setRegPlateError('Ogiltigt format. Exempel: ABC123 eller ABC12D');
-                      }
-                    }}
-                    placeholder="ABC 123"
-                    maxLength={8}
-                    className={`w-24 px-1 py-1 bg-white text-black placeholder-gray-400 focus:outline-none uppercase text-base font-black tracking-widest border-0 flex items-center ${
-                      regPlateError ? 'ring-2 ring-red-500' : ''
-                    }`}
-                    style={{ fontFamily: 'Arial Black, sans-serif', height: '20px', minHeight: 'unset', maxHeight: '20px', display: 'flex', alignItems: 'center' }}
-                  />
+                      }}
+                      onBlur={() => {
+                        if (regPlate && !validateSwedishRegPlate(regPlate)) {
+                          setRegPlateError('Ogiltigt format. Exempel: ABC123 eller ABC12D');
+                        }
+                      }}
+                      placeholder="ABC 123"
+                      maxLength={8}
+                      className={`w-28 px-1 py-1 bg-white text-black placeholder-gray-400 focus:outline-none uppercase text-base font-black tracking-widest border-0 flex items-center ${
+                        regPlateError ? 'ring-2 ring-red-500' : ''
+                      }`}
+                      style={{ fontFamily: 'Arial Black, sans-serif', height: '20px', minHeight: 'unset', maxHeight: '20px', display: 'flex', alignItems: 'center' }}
+                    />
+                  </div>
                 </div>
-                {/* <div className="w-full bg-black px-0 py-0 text-center" style={{ minHeight: '10px', height: '10px' }}>
-                  <span className="text-white text-[7px] font-medium">skjuts.amig.nu</span>
-                </div> */}
+
+                <button
+                  onClick={handleSaveCar}
+                  disabled={savedCars.length >= 3}
+                  className={`${isNarrow ? 'w-2/5' : ''} px-4 py-3 bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium text-white transition-all flex items-center gap-2 text-base`}
+                  title={savedCars.length >= 3 ? 'Max 3 sparade bilar' : ''}
+                >
+                  <Save className="w-4 h-4" />
+                  Spara
+                </button>
               </div>
-              <button
-                onClick={handleSaveCar}
-                disabled={!regPlate || savedCars.length >= 3 || !!regPlateError}
-                className="px-4 py-3 bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium text-white transition-all flex items-center gap-2 text-base"
-              >
-                <Save className="w-4 h-4" />
-                Spara
-              </button>
             </div>
             {regPlateError && (
               <p className="text-xs text-red-400">{regPlateError}</p>
