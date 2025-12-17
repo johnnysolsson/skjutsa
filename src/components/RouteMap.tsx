@@ -19,10 +19,9 @@ L.Marker.prototype.options.icon = DefaultIcon;
 
 interface RouteMapProps {
   onDistanceCalculated: (distanceKm: number) => void;
-  onStartLocationFound?: (locationName: string) => void;
+  onStartLocationFound?: (location: { city: string; lan: string }) => void;
   onDurationCalculated?: (durationMinutes: number) => void;
 }
-
 interface Location {
   lat: number;
   lon: number;
@@ -50,31 +49,34 @@ const RouteMap: React.FC<RouteMapProps> = ({ onDistanceCalculated, onStartLocati
   const [isSearching, setIsSearching] = useState(false);
   // Prevents duplicate route calculations for the same start/end combination
   const lastSearchRef = useRef<string>('');
+  // Note: automatic geolocation on mount removed.
+  // Geolocation is only performed when the user clicks the Locate (crosshair) button.
 
-  useEffect(() => {
+  const handleUseCurrentLocation = useCallback(() => {
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(async (position) => {
         const { latitude, longitude } = position.coords;
         try {
           const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
           const data = await response.json();
-          
+
           if (data) {
             const location: Location = {
               lat: latitude,
               lon: longitude,
               display_name: data.display_name
             };
-            
+
             setStartLocation(location);
-            
-            // Try to get a friendly name (city/town/village)
+
+            // Extract län (county) and city from address
             const address = data.address;
-            const cityName = address?.city || address?.town || address?.village || address?.municipality || data.display_name.split(',')[0];
-            
-            setStartQuery(cityName);
+            const lan = address?.county || address?.state || address?.region || address?.province || address?.municipality || data.display_name.split(',')[0];
+            const city = address?.city || address?.town || address?.village || address?.municipality || address?.hamlet || address?.locality || address?.suburb || address?.county || lan || data.display_name.split(',')[0];
+
+            setStartQuery(city);
             if (onStartLocationFound) {
-                onStartLocationFound(cityName);
+              onStartLocationFound({ city, lan });
             }
           }
         } catch (error) {
@@ -85,40 +87,6 @@ const RouteMap: React.FC<RouteMapProps> = ({ onDistanceCalculated, onStartLocati
       });
     }
   }, [onStartLocationFound]);
-
-  const handleUseCurrentLocation = () => {
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(async (position) => {
-        const { latitude, longitude } = position.coords;
-        try {
-          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
-          const data = await response.json();
-          
-          if (data) {
-            const location: Location = {
-              lat: latitude,
-              lon: longitude,
-              display_name: data.display_name
-            };
-            
-            setStartLocation(location);
-            
-            const address = data.address;
-            const cityName = address?.city || address?.town || address?.village || address?.municipality || data.display_name.split(',')[0];
-            
-            setStartQuery(cityName);
-            if (onStartLocationFound) {
-                onStartLocationFound(cityName);
-            }
-          }
-        } catch (error) {
-          console.error("Error getting current location:", error);
-        }
-      }, (error) => {
-        console.log("Geolocation permission denied or error:", error);
-      });
-    }
-  };
 
   /**
    * Search for location using OpenStreetMap Nominatim API
@@ -158,9 +126,20 @@ const RouteMap: React.FC<RouteMapProps> = ({ onDistanceCalculated, onStartLocati
     setEndLocation(end);
 
     if (start) {
-      // Extract city name (first part of display_name)
-      const cityName = start.display_name.split(',')[0].trim();
-      onStartLocationFound?.(cityName);
+      // Extract län (county) and city from address using reverse geocoding
+      try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${start.lat}&lon=${start.lon}`);
+        const data = await response.json();
+        const address = data.address;
+        const lan = address?.county || address?.state || address?.region || address?.province || address?.municipality || start.display_name.split(',')[0];
+        const city = address?.city || address?.town || address?.village || address?.municipality || address?.hamlet || address?.locality || address?.suburb || address?.county || lan || start.display_name.split(',')[0];
+        onStartLocationFound?.({ city, lan });
+      } catch {
+        // fallback to first part of display_name
+        const lan = start.display_name.split(',')[0].trim();
+        const city = lan;
+        onStartLocationFound?.({ city, lan });
+      }
     }
 
     if (start && end) {
