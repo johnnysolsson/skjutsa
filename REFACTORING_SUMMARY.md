@@ -119,13 +119,13 @@ Comprehensive code cleanup, refactoring, and documentation improvements across t
 ```typescript
 // Magic number scattered throughout
 const limited = updated.slice(0, 3);
-localStorage.setItem('savedCars', JSON.stringify(limited));
+localStorage.setItem("savedCars", JSON.stringify(limited));
 
 // Duplicated fuel type logic
-let fuelType = 'Bensin 95';
+let fuelType = "Bensin 95";
 if (trim.model_engine_fuel) {
   const fuel = trim.model_engine_fuel.toLowerCase();
-  if (fuel.includes('diesel')) fuelType = 'Diesel';
+  if (fuel.includes("diesel")) fuelType = "Diesel";
   // ... 10 more lines
 }
 ```

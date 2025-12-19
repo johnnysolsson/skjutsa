@@ -1,16 +1,21 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api/carquery': {
-        target: 'https://www.carqueryapi.com',
+      "/api/carquery": {
+        target: "https://www.carqueryapi.com",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/carquery/, '/api/0.3')
-      }
-    }
-  }
-})
+        rewrite: (path) => path.replace(/^\/api\/carquery/, "/api/0.3"),
+      },
+      "/api/fuel": {
+        target: "http://localhost:5174",
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
+});
