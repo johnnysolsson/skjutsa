@@ -29,3 +29,10 @@ body {
   padding: 2rem;
   text-align: center;
 }
+
+@media (max-width: 889px) {
+  #root {
+    max-width: 100%;
+    padding: 0;
+  }
+}

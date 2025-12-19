@@ -28,10 +28,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Car, Fuel, Users, MapPin, ArrowRightLeft, Wallet, RotateCcw, Save, X, Navigation, ChevronUp, ChevronDown } from 'lucide-react';
 import { RouteMap } from './RouteMap';
 import { Tooltip } from './Tooltip';
+import LicensePlate from './LicensePlate';
+import validateSwedishRegPlate from './plateUtils';
+import { getLanFromCity } from '../utils/cityLookup';
 
 // Basic constants and types used by the component (restored to satisfy references)
 const KM_PER_MIL = 10;
-const WEAR_COST_PER_KM = 1.5;
+const SKATTEVERKET_WEAR_COST_PER_KM = 1.5;
 const DEFAULT_CONSUMPTION = 0.7;
 const MAX_SAVED_CARS = 3;
 
@@ -61,33 +64,10 @@ const Calculator: React.FC = () => {
   const [regPlateError, setRegPlateError] = useState<string>('');
   const [carName, setCarName] = useState<string>('');
   const [includeWearCost, setIncludeWearCost] = useState<boolean>(false);
+  const [wearCostPerKm, setWearCostPerKm] = useState<number>(SKATTEVERKET_WEAR_COST_PER_KM);
   const [duration, setDuration] = useState<number>(0);
   const [consumptionOverride, setConsumptionOverride] = useState<number | null>(null);
   const [priceOverride, setPriceOverride] = useState<number | null>(null);
-
-  // Responsive layout flag: stack save-form on narrow screens (<889px)
-  const [isNarrow, setIsNarrow] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true;
-    return window.innerWidth < 889;
-  });
-
-  useEffect(() => {
-    const onResize = () => setIsNarrow(window.innerWidth < 889);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  // Helpers for Swedish decimal formatting/parsing
-  const formatDecimal = (n: number, digits = 2) => {
-    return n.toFixed(digits).replace('.', ',');
-  };
-
-  const parseNumberInput = (v: string): number | '' => {
-    const s = String(v).trim();
-    if (s === '') return '';
-    const n = parseFloat(s.replace(',', '.'));
-    return Number.isNaN(n) ? '' : n;
-  };
 
   // Stepping helpers + long-press support
   const consInterval = useRef<number | null>(null);
@@ -99,7 +79,7 @@ const Calculator: React.FC = () => {
     ref.current = window.setTimeout(function tick() {
       fn();
       delay = Math.max(50, delay - 50);
-      ref.current = window.setTimeout(tick, delay);
+      ref.current = window.setTimeout(tick, delay) as unknown as number;
     }, delay) as unknown as number;
   };
 
@@ -110,67 +90,25 @@ const Calculator: React.FC = () => {
     }
   };
 
-  // Temporary no-op effect to reference setters/flags until fetch logic is restored
-  useEffect(() => {
-    // no-op call to reference setter until fetch logic is present
-    setCheapestPrices((p) => p);
-  }, []);
-
-  // NOTE: Removed automatic geolocation on mount — geolocation is triggered
-  // only when the user clicks the crosshair in the map component.
-
-  const handleReset = () => {
-    setDistance('');
-    setConsumption(DEFAULT_CONSUMPTION);
-    setPassengers(1);
-    setIsRoundTrip(false);
-    setFuelType('Bensin 95');
-    setStartCity('Uppsala');
-    setDriverPays(true);
-    setIsCarSelected(false);
-    setPriceOverride(null);
+  // Helpers for Swedish decimal formatting/parsing
+  const formatDecimal = (n: number, digits = 2) => {
+    return n.toFixed(digits).replace('.', ',');
   };
 
-  /**
-   * Validates Swedish registration plate formats
-   * Modern (2019-): ABC12D (3 letters, 2 digits, 1 letter)
-   * Legacy (1974-2019): ABC123 (3 letters, 3 digits)
-   * Note: Å, Ä, Ö are not allowed in Swedish plates
-   */
-  /**
-   * Validates Swedish registration plate formats
-   * @param plate - The registration plate to validate
-   * @returns true if valid Swedish format
-   * 
-   * Accepted formats:
-   * - Modern (2019-): ABC12D (3 letters, 2 digits, 1 letter)
-   * - Legacy (1974-2019): ABC123 (3 letters, 3 digits)
-   * - Note: Swedish characters (Å, Ä, Ö) are not allowed
-   */
-  const validateSwedishRegPlate = (plate: string): boolean => {
-    const cleaned = plate.replace(/\s/g, '').toUpperCase();
-    
-    // Moderna systemet (2019-): ABC12D (3 bokstäver, 2 siffror, 1 bokstav)
-    const modern = /^[A-Z]{3}\d{2}[A-Z]$/;
-    
-    // Äldre systemet (1974-2019): ABC123 (3 bokstäver, 3 siffror)
-    const legacy = /^[A-Z]{3}\d{3}$/;
-    
-    // Kontrollera att inga svenska bokstäver används (Å, Ä, Ö)
-    if (/[ÅÄÖ]/.test(cleaned)) return false;
-    
-    // Kontrollera format
-    return modern.test(cleaned) || legacy.test(cleaned);
+  const parseNumberInput = (v: string): number | '' => {
+    const s = String(v).trim();
+    if (s === '') return '';
+    const normalized = s.replace(',', '.').replace(/[^0-9.+-]/g, '');
+    const n = Number(normalized);
+    return Number.isNaN(n) ? '' : n;
   };
 
   const handleSaveCar = () => {
-    if (!regPlate || !consumption) return;
-    
     if (!validateSwedishRegPlate(regPlate)) {
       setRegPlateError('Ogiltigt format. Exempel: ABC123 eller ABC12D');
       return;
     }
-    
+
     const newCar: SavedCar = {
       regPlate: regPlate.replace(/\s/g, '').toUpperCase(),
       consumption: Number(consumption),
@@ -178,12 +116,9 @@ const Calculator: React.FC = () => {
       carName: carName || undefined
     };
 
-    const updated = savedCars.filter(car => car.regPlate !== newCar.regPlate);
-    updated.unshift(newCar);
-    const limited = updated.slice(0, MAX_SAVED_CARS);
-    
-    setSavedCars(limited);
-    localStorage.setItem('savedCarsManual', JSON.stringify(limited));
+    const updated = [newCar, ...savedCars.filter(c => c.regPlate !== newCar.regPlate)].slice(0, MAX_SAVED_CARS);
+    setSavedCars(updated);
+    localStorage.setItem('savedCarsManual', JSON.stringify(updated));
     setRegPlate('');
     setCarName('');
     setRegPlateError('');
@@ -201,6 +136,30 @@ const Calculator: React.FC = () => {
     localStorage.setItem('savedCarsManual', JSON.stringify(updated));
   };
 
+  // Layout helper: narrow mode for small screens (basic fallback)
+  const isNarrow = false;
+
+  const handleReset = () => {
+    setDistance('');
+    setConsumption(DEFAULT_CONSUMPTION);
+    setPassengers(1);
+    setIsRoundTrip(false);
+    setFuelType('Bensin 95');
+    setStartCity('Uppsala');
+    setStartLan('');
+    setDriverPays(true);
+    setIsCarSelected(false);
+    setPriceOverride(null);
+    setConsumptionOverride(null);
+    setIncludeWearCost(false);
+    setWearCostPerKm(SKATTEVERKET_WEAR_COST_PER_KM);
+    setRegPlate('');
+    setCarName('');
+    setRegPlateError('');
+    setCheapestPrices({});
+    setDuration(0);
+  };
+
   /**
    * Calculate fuel price based on region
    * Tries to match city name, handles partial matches (e.g., "Stockholms kommun" -> "Stockholm")
@@ -211,7 +170,8 @@ const Calculator: React.FC = () => {
    * Falls back to default if no match found
    */
   // Get fuel price from FUEL_PRICE_DATA using län and fuel type
-  const calculatePrice = (): number => {
+  const calculatePrice = (fuelArg?: FuelType): number => {
+    const ft = fuelArg ?? fuelType;
     // Normalize län to match keys (e.g., "Uppsala län" or "uppsalacounty" -> "uppsala-lan")
     let lanKey = (startLan || '').toLowerCase().replace(/[^a-zåäö]/gi, '');
     lanKey = lanKey.replace(/(lan|county|l\u00e4n)$/i, ''); // Remove any trailing 'lan', 'län', or 'county'
@@ -219,7 +179,7 @@ const Calculator: React.FC = () => {
     lanKey = lanKey + '-lan';
     // Map fuelType to key suffix
     let fuelKey = '';
-    switch (fuelType) {
+    switch (ft) {
       case 'Bensin 95': fuelKey = '95'; break;
       case 'Diesel': fuelKey = 'diesel'; break;
       case 'E85': fuelKey = 'etanol'; break;
@@ -230,12 +190,21 @@ const Calculator: React.FC = () => {
     const matches = Object.entries(FUEL_PRICE_DATA)
       .filter(([k]) => k.startsWith(lanKey + '_') && k.endsWith(`__${fuelKey}`));
     if (matches.length > 0) {
-      // Return the lowest price found
+      // Return the lowest price found for this län
       return Math.min(...matches.map(([, v]) => parseFloat(v)));
     }
-    // Fallback: return a default price
+
+    // If no regional match, fall back to the global cheapest for this fuel type
+    const globalMatches = Object.entries(FUEL_PRICE_DATA).filter(([k]) => k.endsWith(`__${fuelKey}`));
+    if (globalMatches.length > 0) {
+      return Math.min(...globalMatches.map(([, v]) => parseFloat(v)));
+    }
+
+    // Final fallback: return a default price
     return 17.29;
   };
+
+  // getPriceFor removed (dropdown no longer displays prices)
 
   // Use the cheapest price from län API or fallback to local data
   const getAutoPrice = () => {
@@ -245,6 +214,19 @@ const Calculator: React.FC = () => {
     return calculatePrice();
   };
   const price = priceOverride ?? getAutoPrice();
+
+  // Log embedded fuel data and any fetched prices for debugging
+  useEffect(() => {
+    try {
+      if (console.group) console.group('Fuel Prices');
+      console.log('Embedded FUEL_PRICE_DATA keys:', Object.keys(FUEL_PRICE_DATA).length);
+      console.log('Embedded FUEL_PRICE_DATA sample:', Object.entries(FUEL_PRICE_DATA).slice(0, 10));
+      console.log('cheapestPrices (from API):', cheapestPrices);
+      if (console.groupEnd) console.groupEnd();
+    } catch (err) {
+      console.log('Fuel price logging error', err);
+    }
+  }, [cheapestPrices]);
 
   // Format totals with two decimals (comma separator)
   const totalFormatted = (n: number) => formatDecimal(n, 2);
@@ -261,7 +243,7 @@ const Calculator: React.FC = () => {
   // Swedish consumption is in L/mil (10km), so divide distance by 10
   const fuelNeeded = (calculatedDistance / KM_PER_MIL) * cons;
   const fuelCost = fuelNeeded * price;
-  const wearCost = includeWearCost ? calculatedDistance * WEAR_COST_PER_KM : 0;
+  const wearCost = includeWearCost ? calculatedDistance * wearCostPerKm : 0;
   const total = fuelCost + wearCost;
   
   const payingPassengers = driverPays ? pass : Math.max(0, pass - 1);
@@ -287,11 +269,13 @@ const Calculator: React.FC = () => {
         {/* Map & Route Selection */}
             <div className="space-y-2">
           <div className="flex items-center justify-between px-1">
-            <label className="flex items-center text-lg font-medium text-gray-300">
-              <MapPin className="w-4 h-4 mr-2 text-purple-400" />
-              Karta och rutt
-            </label>
-            <Tooltip content="Klicka på kartan eller sök för att sätta startpunkt och destination. Rutten beräknas automatiskt." />
+            <div className="flex items-center">
+              <label className="flex items-center text-lg font-medium text-gray-300 mt-4">
+                <MapPin className="w-4 h-4 mr-2 text-purple-400" />
+                Karta och rutt
+              </label>
+              <Tooltip content="Klicka på kartan eller sök för att sätta startpunkt och destination. Rutten beräknas automatiskt." />
+            </div>
           </div>
           <p className="text-xs text-gray-400 px-1 pb-1">Sök start och mål på kartan.</p>
           <RouteMap 
@@ -303,11 +287,18 @@ const Calculator: React.FC = () => {
               if (typeof result === 'object' && result !== null) {
                 if (result.city) {
                   setStartCity(result.city);
+                  // prefer explicit län from RouteMap, otherwise attempt to resolve from city
                 }
-                if (result.lan) setStartLan(result.lan);
+                if (result.lan) {
+                  setStartLan(result.lan);
+                } else if (result.city) {
+                  const resolved = getLanFromCity(result.city);
+                  if (resolved) setStartLan(resolved);
+                }
               } else {
                 setStartCity(result);
-                setStartLan('Uppsala län'); // fallback if only city is provided
+                const resolved = getLanFromCity(result);
+                setStartLan(resolved || 'Uppsala län'); // fallback
               }
               // No immediate logging here; handled by useEffect above
             }}
@@ -319,11 +310,13 @@ const Calculator: React.FC = () => {
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="flex items-center text-lg font-medium text-gray-300">
-                <MapPin className="w-4 h-4 mr-2 text-purple-400" />
-                Avstånd (km)
-              </label>
-              <Tooltip content="Avståndet fylls i automatiskt när du väljer rutt på kartan, men du kan också skriva in det manuellt." />
+              <div className="flex items-center">
+                <label className="flex items-center text-lg font-medium text-gray-300 mt-4">
+                  <MapPin className="w-4 h-4 mr-2 text-purple-400" />
+                  Avstånd (km)
+                </label>
+                <Tooltip content="Avståndet fylls i automatiskt när du väljer rutt på kartan, men du kan också skriva in det manuellt." />
+              </div>
             </div>
             <p className="text-xs text-gray-400">Resans längd i km.</p>
               <input
@@ -339,11 +332,13 @@ const Calculator: React.FC = () => {
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="flex items-center text-lg font-medium text-gray-300">
-                <Navigation className="w-4 h-4 mr-2 text-indigo-400" />
-                Restid
-              </label>
-              <Tooltip content="Beräknad restid hämtas automatiskt från rutten. Dubblas vid tur & retur." />
+              <div className="flex items-center">
+                <label className="flex items-center text-lg font-medium text-gray-300 mt-4">
+                  <Navigation className="w-4 h-4 mr-2 text-indigo-400" />
+                  Restid
+                </label>
+                <Tooltip content="Beräknad restid hämtas automatiskt från rutten. Dubblas vid tur & retur." />
+              </div>
             </div>
             <p className="text-xs text-gray-400">Ungefärlig körtid.</p>
             <div className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-3 text-gray-400">
@@ -356,26 +351,28 @@ const Calculator: React.FC = () => {
         {!isCarSelected && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <label className="flex items-center text-lg font-medium text-gray-300">
-              <Fuel className="w-4 h-4 mr-2 text-yellow-400" />
-              Bränsletyp ({startCity})
-            </label>
-            <Tooltip content="Priset uppdateras automatiskt baserat på vald bränsletyp och region." />
+            <div className="flex items-center">
+              <label className="flex items-center text-lg font-medium text-gray-300 mt-4">
+                <Fuel className="w-4 h-4 mr-2 text-yellow-400" />
+                Bränsletyp ({startCity})
+              </label>
+              <Tooltip content="Priset uppdateras automatiskt baserat på vald bränsletyp och region." />
+            </div>
           </div>
           <p className="text-xs text-gray-400">Välj bränsle.</p>
-          <div className="relative">
+          <div className="relative mb-8">
             <select
               value={fuelType}
               onChange={(e) => setFuelType(e.target.value as FuelType)}
-              className="w-full mb-8 bg-black/20 border border-white/10 rounded-lg px-4 py-3 text-white appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-all cursor-pointer"
+              className="block w-full bg-black/20 border border-white/10 rounded-lg px-4 py-3 pr-12 text-white appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-all cursor-pointer"
             >
               <option value="Bensin 95">Bensin 95</option>
               <option value="Diesel">Diesel</option>
               <option value="E85">E85</option>
               <option value="HVO100">HVO100</option>
             </select>
-            <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-400">
-              <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">
+            <div className="pointer-events-none text-gray-400" style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg className="w-4 h-4 fill-current block" viewBox="0 0 20 20" aria-hidden="true">
                 <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" fillRule="evenodd"></path>
               </svg>
             </div>
@@ -387,11 +384,13 @@ const Calculator: React.FC = () => {
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="flex items-center text-lg font-medium text-gray-300">
-                <Fuel className="w-4 h-4 mr-2 text-yellow-400" />
-                Förbrukning
-              </label>
-              <Tooltip content="Hur mycket bränsle bilen drar per mil vid blandad körning." />
+              <div className="flex items-center">
+                <label className="flex items-center text-lg font-medium text-gray-300 mt-4">
+                  <Fuel className="w-4 h-4 mr-2 text-yellow-400" />
+                  Förbrukning
+                </label>
+                <Tooltip content="Hur mycket bränsle bilen drar per mil vid blandad körning." />
+              </div>
             </div>
             <p className="text-xs text-gray-400">Liter per mil.</p>
             <div className="relative">
@@ -489,11 +488,13 @@ const Calculator: React.FC = () => {
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="flex items-center text-lg font-medium text-gray-300">
-                <Wallet className="w-4 h-4 mr-2 text-green-400" />
-                Bränslepris
-              </label>
-              <Tooltip content="Genomsnittligt pumppris. Hämtas automatiskt men kan ändras manuellt." />
+              <div className="flex items-center">
+                <label className="flex items-center text-lg font-medium text-gray-300 mt-4">
+                  <Wallet className="w-4 h-4 mr-2 text-green-400" />
+                  Bränslepris
+                </label>
+                <Tooltip content="Genomsnittligt pumppris. Hämtas automatiskt men kan ändras manuellt." />
+              </div>
             </div>
             <p className="text-xs text-gray-400">Pris per liter (kr).</p>
             <div className="relative flex items-center gap-2">
@@ -608,38 +609,14 @@ const Calculator: React.FC = () => {
                 >
                   <button
                     onClick={() => handleLoadCar(car)}
-                    className="flex flex-col bg-white border-4 border-black rounded-md shadow-lg hover:shadow-xl transition-shadow overflow-hidden"
+                    className="flex flex-col bg-transparent rounded-md hover:shadow-lg transition-shadow overflow-visible"
+                    style={{ boxSizing: 'border-box', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
                   >
-                    <div className="flex items-center relative">
-                      <div className="w-10 bg-blue-600 h-full py-2 flex flex-col items-center justify-center gap-0.5">
-                        <div className="relative w-6 h-6">
-                          {Array.from({ length: 12 }).map((_, i) => {
-                            const angle = (i * 30 - 90) * (Math.PI / 180);
-                            const radius = 8;
-                            const x = Math.cos(angle) * radius;
-                            const y = Math.sin(angle) * radius;
-                            return (
-                              <div
-                                key={i}
-                                className="absolute w-1 h-1 bg-yellow-400"
-                                style={{
-                                  left: `calc(50% + ${x}px)`,
-                                  top: `calc(50% + ${y}px)`,
-                                  transform: 'translate(-50%, -50%)'
-                                }}
-                              />
-                            );
-                          })}
-                        </div>
-                        <div className="text-white font-bold text-xs">S</div>
-                      </div>
-                      <div className="px-3 py-2 bg-white">
-                        <span className="font-black text-black text-base tracking-widest" style={{ fontFamily: 'Arial Black, sans-serif' }}>
-                          {car.regPlate.replace(/^([A-Z]{3})(\d)/, '$1 $2')}
-                        </span>
-                      </div>
+                    {/* Plate container sized to match LicensePlate width */}
+                    <div className="flex items-center relative justify-center" style={{ width: 110, padding: '6px 0' }}>
+                      <LicensePlate value={car.regPlate} width={110} />
                     </div>
-                    <div className="w-full bg-black px-2 py-0.5">
+                    <div style={{ width: 110 }} className="bg-black px-2 py-0.5 text-center">
                       <span className="text-white text-[9px] font-medium">
                         {car.carName || 'skjuts.amig.nu'}
                       </span>
@@ -674,69 +651,34 @@ const Calculator: React.FC = () => {
                 className={`${isNarrow ? 'w-full' : 'flex-1 mb-0'} bg-black/20 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-all text-base`}
               />
 
-              <div className={isNarrow ? 'flex items-center gap-2 w-full' : 'flex items-center gap-2'}>
-                <div className={`${isNarrow ? 'w-3/5' : ''} flex flex-col bg-white border-4 border-black rounded-md shadow-lg overflow-hidden`} style={{ height: '38px', minHeight: 'unset', maxHeight: '40px' }}>
-                  <div className="flex items-center justify-center relative h-full" style={{ height: '100%' }}>
-                    <div className="w-6 bg-blue-600 h-full flex flex-col items-center justify-center gap-0.5" style={{ height: '100%' }}>
-                      <div className="relative mt-1 w-1 h-1">
-                        {Array.from({ length: 12 }).map((_, i) => {
-                          const angle = (i * 30 - 90) * (Math.PI / 180);
-                          const radius = 4.5;
-                          const x = Math.cos(angle) * radius;
-                          const y = Math.sin(angle) * radius;
-                          return (
-                            <div
-                              key={i}
-                              className="absolute w-0.5 h-0.5 bg-yellow-400"
-                              style={{
-                                left: `calc(50% + ${x}px)`,
-                                top: `calc(50% + ${y}px)`,
-                                transform: 'translate(-50%, -50%)'
-                              }}
-                            />
-                          );
-                        })}
-                      </div>
-                      <div className="text-white font-bold text-xs">S</div>
-                    </div>
-                    <input
-                      type="text"
-                      value={regPlate.replace(/^([A-Z]{3})(\d)/, '$1 $2')}
-                      onChange={(e) => {
-                        const value = e.target.value.replace(/\s/g, '').toUpperCase();
-                        setRegPlate(value);
-                        if (regPlateError && value) {
-                          if (validateSwedishRegPlate(value)) {
-                            setRegPlateError('');
-                          }
-                        }
-                      }}
-                      onBlur={() => {
-                        if (regPlate && !validateSwedishRegPlate(regPlate)) {
-                          setRegPlateError('Ogiltigt format. Exempel: ABC123 eller ABC12D');
-                        }
-                      }}
-                      placeholder="ABC 123"
-                      maxLength={8}
-                      className={`w-28 px-1 py-1 bg-white text-black placeholder-gray-400 focus:outline-none uppercase text-base font-black tracking-widest border-0 flex items-center ${
-                        regPlateError ? 'ring-2 ring-red-500' : ''
-                      }`}
-                      style={{ fontFamily: 'Arial Black, sans-serif', height: '20px', minHeight: 'unset', maxHeight: '20px', display: 'flex', alignItems: 'center' }}
-                    />
-                  </div>
-                </div>
-
+              <div className="flex items-center gap-2" style={{flex: 'none'}}>
+                <LicensePlate value={regPlate} setValue={setRegPlate} error={regPlateError} setError={setRegPlateError} editable />
+              </div>
                 <button
                   onClick={handleSaveCar}
-                  disabled={savedCars.length >= 3}
-                  className={`${isNarrow ? 'w-2/5' : ''} px-4 py-3 bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium text-white transition-all flex items-center gap-2 text-base`}
-                  title={savedCars.length >= 3 ? 'Max 3 sparade bilar' : ''}
+                  disabled={
+                    savedCars.length >= 3 ||
+                    regPlate.length !== 6 ||
+                    !validateSwedishRegPlate(regPlate) ||
+                    !!regPlateError
+                  }
+                  className={`px-4 py-3 bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium text-white transition-all flex items-center gap-2 text-base`}
+                  title={
+                    savedCars.length >= 3
+                      ? 'Max 3 sparade bilar'
+                      : regPlate.length !== 6
+                        ? 'Fyll i hela registreringsnumret'
+                        : regPlateError
+                          ? regPlateError
+                          : !validateSwedishRegPlate(regPlate)
+                            ? 'Ogiltigt format'
+                            : ''
+                  }
                 >
                   <Save className="w-4 h-4" />
                   Spara
                 </button>
               </div>
-            </div>
             {regPlateError && (
               <p className="text-xs text-red-400">{regPlateError}</p>
             )}
@@ -750,7 +692,7 @@ const Calculator: React.FC = () => {
         <div className="space-y-2">
           <div className="flex justify-between items-center">
             <div className="flex items-center">
-              <label className="flex items-center text-lg font-medium text-gray-300 mr-2">
+              <label className="flex items-center text-lg font-medium text-gray-300 mr-2 mt-4">
                 <Users className="w-4 h-4 mr-2 text-blue-400" />
                 Passagerare
               </label>
@@ -777,63 +719,125 @@ const Calculator: React.FC = () => {
               disabled={passengers <= 1}
               className="w-4 h-4 text-cyan-500 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500 focus:ring-offset-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            <label htmlFor="driverPays" className={`ml-2 text-lg font-medium ${passengers <= 1 ? 'text-gray-500' : 'text-gray-300'}`}>
-              Föraren betalar sin del
-            </label>
-            <Tooltip content="Om avmarkerad delas kostnaden endast på passagerarna (föraren åker gratis)." />
+            <div className="flex items-center ml-2">
+              <label htmlFor="driverPays" className={`text-lg font-medium ${passengers <= 1 ? 'text-gray-500' : 'text-gray-300'}`}>
+                Föraren betalar sin del
+              </label>
+              <Tooltip content="Om avmarkerad delas kostnaden endast på passagerarna (föraren åker gratis)." />
+            </div>
           </div>
         </div>
 
-        {/* Round Trip Toggle */}
-        <div className="flex items-center justify-between p-3 bg-black/20 rounded-lg border border-white/5">
-          <div className="flex flex-col">
-            <div className="flex items-center">
-              <label className="flex items-center text-lg font-medium text-gray-300 cursor-pointer">
-                <ArrowRightLeft className="w-4 h-4 mr-2 text-pink-400" />
-                Tur och retur
-              </label>
-              <Tooltip content="Räknar med hemresan (dubbla avståndet)." />
+        {/* Round Trip and Wear Cost Toggles Side by Side */}
+        <div className="flex gap-4 w-full items-start">
+          {/* Round Trip Toggle */}
+          <div className="flex-1 flex flex-col justify-between p-3 bg-black/20 rounded-lg border border-white/5 min-w-0">
+            <div className="flex items-center justify-between w-full min-h-[32px]">
+              <div className="flex items-center">
+                <label className="flex items-center text-lg font-medium text-gray-300 cursor-pointer mt-4">
+                  <ArrowRightLeft className="w-4 h-4 mr-2 text-pink-400" />
+                  Tur och retur
+                </label>
+                <Tooltip content="Räknar med hemresan (dubbla avståndet)." />
+              </div>
+              <button
+                onClick={() => setIsRoundTrip(!isRoundTrip)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                  isRoundTrip ? 'bg-cyan-600' : 'bg-gray-700'
+                }`}
+                style={{ marginLeft: '12px' }}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    isRoundTrip ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
             </div>
-            <p className="text-xs text-gray-400 mt-1">Ska ni åka tillbaka?</p>
+            <p className="text-xs text-gray-400 mt-0.5 text-left" style={{overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>
+              Ska ni åka tillbaka?
+            </p>
           </div>
-          <button
-            onClick={() => setIsRoundTrip(!isRoundTrip)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-              isRoundTrip ? 'bg-cyan-600' : 'bg-gray-700'
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                isRoundTrip ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
+          {/* Wear Cost Toggle & Adjustable Field */}
+          <div className="flex-1 p-3 bg-black/20 rounded-lg border border-white/5 min-w-0 flex flex-col items-center">
+            <div className="flex items-center justify-between w-full min-h-[32px]">
+              <div className="flex items-center">
+                <label className="flex items-center text-lg font-medium text-gray-300 cursor-pointer mt-4">
+                  <Wallet className="w-4 h-4 mr-2 text-orange-400" />
+                  Slitage
+                </label>
+                <Tooltip content="Beräknas till 1.50 kr/km baserat på Skatteverkets schablon för milersättning (ca 24-25 kr/mil totalt, varav ~15 kr/mil är slitage). Inkluderar däckslitage, service, reparationer, försäkring och värdeminskning." />
+              </div>
+              <button
+                onClick={() => setIncludeWearCost(!includeWearCost)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                  includeWearCost ? 'bg-cyan-600' : 'bg-gray-700'
+                }`}
+                style={{ marginLeft: '12px' }}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    includeWearCost ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-0.5 text-left">Däck, service, värdeminskning ({wearCostPerKm.toFixed(2)} kr/km)</p>
+            {includeWearCost && (
+                <div className="mt-4 flex flex-col items-center w-full">
+                <div className="w-full flex flex-col items-stretch">
+                  <span className="text-xs text-gray-400 mb-1 text-center w-full">kr/km</span>
+                  <div className="relative bg-black/20 border border-white/10 rounded-lg h-12 flex items-center w-full">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={wearCostPerKm.toFixed(2)}
+                      onChange={e => {
+                        const v = parseFloat(e.target.value.replace(',', '.'));
+                        if (!isNaN(v) && v >= 0) setWearCostPerKm(Math.round(v * 100) / 100);
+                      }}
+                      className="w-full h-full bg-transparent border-0 rounded-lg px-4 pr-12 text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
+                      style={{ fontVariantNumeric: 'tabular-nums' }}
+                    />
+                    <div className="absolute top-1/2 transform -translate-y-1/2 flex flex-col gap-1" style={{ right: '6px' }}>
+                      <button
+                        type="button"
+                        onMouseDown={() => startRepeat(() => setWearCostPerKm(w => Math.round((w + 0.01) * 100) / 100), priceInterval)}
+                        onMouseUp={() => stopRepeat(priceInterval)}
+                        onMouseLeave={() => stopRepeat(priceInterval)}
+                        onTouchStart={() => startRepeat(() => setWearCostPerKm(w => Math.round((w + 0.01) * 100) / 100), priceInterval)}
+                        onTouchEnd={() => stopRepeat(priceInterval)}
+                        onClick={() => setWearCostPerKm(w => Math.round((w + 0.01) * 100) / 100)}
+                        className="bg-transparent hover:bg-white/5 rounded text-white flex items-center justify-center"
+                        style={{ width: '27px', height: '19px' }}
+                        aria-label="Öka slitage med 0,01"
+                        title="+0,01"
+                      >
+                        <ChevronUp className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={() => startRepeat(() => setWearCostPerKm(w => Math.max(0, Math.round((w - 0.01) * 100) / 100)), priceInterval)}
+                        onMouseUp={() => stopRepeat(priceInterval)}
+                        onMouseLeave={() => stopRepeat(priceInterval)}
+                        onTouchStart={() => startRepeat(() => setWearCostPerKm(w => Math.max(0, Math.round((w - 0.01) * 100) / 100)), priceInterval)}
+                        onTouchEnd={() => stopRepeat(priceInterval)}
+                        onClick={() => setWearCostPerKm(w => Math.max(0, Math.round((w - 0.01) * 100) / 100))}
+                        className="bg-transparent hover:bg-white/5 rounded text-white flex items-center justify-center"
+                        style={{ width: '27px', height: '19px' }}
+                        aria-label="Minska slitage med 0,01"
+                        title="-0,01"
+                      >
+                        <ChevronDown className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-
-        {/* Wear Cost Toggle */}
-        <div className="flex items-center justify-between p-3 bg-black/20 rounded-lg border border-white/5">
-          <div className="flex flex-col">
-            <div className="flex items-center">
-              <label className="flex items-center text-lg font-medium text-gray-300 cursor-pointer">
-                <Wallet className="w-4 h-4 mr-2 text-orange-400" />
-                Inkludera slitage
-              </label>
-              <Tooltip content="Beräknas till 1.50 kr/km baserat på Skatteverkets schablon för milersättning (ca 24-25 kr/mil totalt, varav ~15 kr/mil är slitage). Inkluderar däckslitage, service, reparationer, försäkring och värdeminskning." />
-            </div>
-            <p className="text-xs text-gray-400 mt-1">Däck, service, värdeminskning (1.50 kr/km)</p>
-          </div>
-          <button
-            onClick={() => setIncludeWearCost(!includeWearCost)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-              includeWearCost ? 'bg-orange-600' : 'bg-gray-700'
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                includeWearCost ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
         </div>
 
         {/* Results */}
@@ -862,10 +866,11 @@ const Calculator: React.FC = () => {
             <RotateCcw className="w-4 h-4 mr-2" />
             Återställ kalkylator
           </button>
-        </div>
+
+        {/* End main content wrapper */}
       </div>
     </div>
   );
-};
+}
 
 export default Calculator;
