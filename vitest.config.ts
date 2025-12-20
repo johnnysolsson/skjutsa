@@ -6,7 +6,8 @@ export default defineConfig({
     globals: true,
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     coverage: {
-      provider: "v8",
+      provider: "c8",
+      // switched from v8 to c8 to match installed Vitest version,
     },
   },
 });
