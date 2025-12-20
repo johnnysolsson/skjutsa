@@ -276,8 +276,17 @@ const Calculator: React.FC = () => {
 
   // When start city/lan changes, try to fetch cached/remote prices for that län
   useEffect(() => {
-    const FUEL_API_BASE =
-      (import.meta.env.VITE_FUEL_API_URL as string) || "http://localhost:5173";
+    // Build a robust base URL for the fuel API. Prefer explicitly configured
+    // `VITE_FUEL_API_URL`. If it's empty, use the dev proxy path `/api/fuel` so
+    // Vite will forward requests to the cache server. If the env var is an
+    // origin-only string (e.g. "http://localhost:5173") append the API path.
+    let FUEL_API_BASE = (import.meta.env.VITE_FUEL_API_URL as string) || "";
+    if (!FUEL_API_BASE) {
+      FUEL_API_BASE = "/api/fuel";
+    } else if (/^https?:\/\/[^/]+$/.test(FUEL_API_BASE)) {
+      // origin only — add the api path
+      FUEL_API_BASE = `${FUEL_API_BASE.replace(/\/$/, "")}/api/fuel`;
+    }
     // Only run after the user has interacted (entered start and moved on)
     if (!userHasInteracted) return;
 
@@ -299,7 +308,9 @@ const Calculator: React.FC = () => {
       .replace(/^-+|-+$/g, "");
 
     const controller = new AbortController();
-    const url = `${FUEL_API_BASE}?lan=${encodeURIComponent(apiLan)}`;
+    const url = FUEL_API_BASE.includes("?")
+      ? `${FUEL_API_BASE}&lan=${encodeURIComponent(apiLan)}`
+      : `${FUEL_API_BASE}?lan=${encodeURIComponent(apiLan)}`;
     fetch(url, { signal: controller.signal })
       .then(async (r) => {
         if (!r.ok) throw new Error("Failed to fetch fuel data");
