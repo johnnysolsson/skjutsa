@@ -50,7 +50,7 @@ const pruneOldFiles = async () => {
   }
 };
 
-app.get("/api/fuel", async (req, res) => {
+app.get("", async (req, res) => {
   const lan = req.query.lan || "";
   const normalized = normalizeLanForFile(lan);
   if (!normalized)

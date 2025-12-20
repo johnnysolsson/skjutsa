@@ -299,7 +299,7 @@ const Calculator: React.FC = () => {
       .replace(/^-+|-+$/g, "");
 
     const controller = new AbortController();
-    const url = `${FUEL_API_BASE}/api/fuel?lan=${encodeURIComponent(apiLan)}`;
+    const url = `${FUEL_API_BASE}?lan=${encodeURIComponent(apiLan)}`;
     fetch(url, { signal: controller.signal })
       .then(async (r) => {
         if (!r.ok) throw new Error("Failed to fetch fuel data");
@@ -550,7 +550,7 @@ const Calculator: React.FC = () => {
                         alignItems: "center",
                         justifyContent: "center",
                         background: "#000",
-                        marginTop: 8,
+                        marginTop: 2,
                         marginLeft: -5,
                         borderRadius: 2,
                       }}
