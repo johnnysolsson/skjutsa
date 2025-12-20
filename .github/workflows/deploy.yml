@@ -15,7 +15,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
@@ -23,22 +22,24 @@ jobs:
       - name: Build
         run: npm run build --if-present
 
-      - name: Deploy dist via SCP
-        uses: appleboy/scp-action@v0.1.6
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          source: "dist/*"
-          target: ${{ secrets.DEPLOY_PATH }}
+      - name: Prepare SSH key
+        if: ${{ secrets.SSH_KEY != '' }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          if [ -n "${{ secrets.SSH_HOST }}" ]; then
+            ssh-keyscan -p "${{ secrets.SSH_PORT }}" -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts || true
+          fi
 
-      - name: Optional post-deploy commands
-        if: ${{ secrets.POST_DEPLOY_COMMAND != '' }}
-        uses: appleboy/ssh-action@v0.1.6
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          script: ${{ secrets.POST_DEPLOY_COMMAND }}
+      - name: Deploy via scp (optional)
+        if: ${{ secrets.SSH_HOST != '' && secrets.SSH_USER != '' && secrets.SSH_KEY != '' && secrets.DEPLOY_PATH != '' }}
+        run: |
+          echo "Deploying to ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}"
+          scp -o StrictHostKeyChecking=yes -P "${{ secrets.SSH_PORT }}" -r dist/* "${{ secrets.SSH_USER }}"@"${{ secrets.SSH_HOST }}":"${{ secrets.DEPLOY_PATH }}"
+
+      - name: Post-deploy command (optional)
+        if: ${{ secrets.POST_DEPLOY_COMMAND != '' && secrets.SSH_HOST != '' && secrets.SSH_USER != '' && secrets.SSH_KEY != '' }}
+        run: |
+          echo "Running post-deploy command on ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}"
+          ssh -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}"@"${{ secrets.SSH_HOST }}" "${{ secrets.POST_DEPLOY_COMMAND }}"
