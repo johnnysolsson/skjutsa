@@ -1,5 +1,3 @@
-"$schema": "https://json.schemastore.org/github-workflow.json"
-
 name: Deploy
 
 on:
@@ -26,22 +24,36 @@ jobs:
 
       - name: Prepare SSH key
         if: ${{ secrets.SSH_KEY != '' }}
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
+          echo "$SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          if [ -n "${{ secrets.SSH_HOST }}" ]; then
-            ssh-keyscan -p "${{ secrets.SSH_PORT }}" -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts || true
+          if [ -n "$SSH_HOST" ]; then
+            ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts || true
           fi
 
       - name: Deploy via scp (optional)
         if: ${{ secrets.SSH_HOST != '' && secrets.SSH_USER != '' && secrets.SSH_KEY != '' && secrets.DEPLOY_PATH != '' }}
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
-          echo "Deploying to ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}"
-          scp -o StrictHostKeyChecking=yes -P "${{ secrets.SSH_PORT }}" -r dist/* "${{ secrets.SSH_USER }}"@"${{ secrets.SSH_HOST }}":"${{ secrets.DEPLOY_PATH }}"
+          echo "Deploying to $SSH_USER@$SSH_HOST:$DEPLOY_PATH"
+          scp -o StrictHostKeyChecking=yes -P "$SSH_PORT" -r dist/* "$SSH_USER"@"$SSH_HOST":"$DEPLOY_PATH"
 
       - name: Post-deploy command (optional)
         if: ${{ secrets.POST_DEPLOY_COMMAND != '' && secrets.SSH_HOST != '' && secrets.SSH_USER != '' && secrets.SSH_KEY != '' }}
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          POST_CMD: ${{ secrets.POST_DEPLOY_COMMAND }}
         run: |
-          echo "Running post-deploy command on ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}"
-          ssh -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}"@"${{ secrets.SSH_HOST }}" "${{ secrets.POST_DEPLOY_COMMAND }}"
+          echo "Running post-deploy command on $SSH_USER@$SSH_HOST"
+          ssh -p "$SSH_PORT" "$SSH_USER"@"$SSH_HOST" "$POST_CMD"
