@@ -23,12 +23,12 @@ jobs:
         run: npm run build --if-present
 
       - name: Prepare SSH key
-        if: ${{ secrets.SSH_KEY != '' }}
         env:
           SSH_KEY: ${{ secrets.SSH_KEY }}
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
         run: |
+          if [ -n "${{ secrets.SSH_KEY != '' }}" ]; then
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
@@ -37,23 +37,12 @@ jobs:
           fi
 
       - name: Deploy via scp (optional)
-        if: ${{ secrets.SSH_HOST != '' && secrets.SSH_USER != '' && secrets.SSH_KEY != '' && secrets.DEPLOY_PATH != '' }}
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
+          if [ -n "${{ secrets.SSH_HOST != '' && secrets.SSH_USER != '' && secrets.SSH_KEY != '' && secrets.DEPLOY_PATH != '' }}" ]; then
           echo "Deploying to $SSH_USER@$SSH_HOST:$DEPLOY_PATH"
           scp -o StrictHostKeyChecking=yes -P "$SSH_PORT" -r dist/* "$SSH_USER"@"$SSH_HOST":"$DEPLOY_PATH"
-
-      - name: Post-deploy command (optional)
-        if: ${{ secrets.POST_DEPLOY_COMMAND != '' && secrets.SSH_HOST != '' && secrets.SSH_USER != '' && secrets.SSH_KEY != '' }}
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
-          POST_CMD: ${{ secrets.POST_DEPLOY_COMMAND }}
-        run: |
-          echo "Running post-deploy command on $SSH_USER@$SSH_HOST"
-          ssh -p "$SSH_PORT" "$SSH_USER"@"$SSH_HOST" "$POST_CMD"
